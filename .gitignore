@@ -1,0 +1,71 @@
+# ---------- ESP-IDF build output ----------
+build/
+managed_components/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# ---------- IDF configuration ----------
+# Track sdkconfig.defaults instead; these are machine-specific.
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+
+# ---------- Binaries / images ----------
+*.bin
+*.elf
+*.map
+
+# ---------- Logs ----------
+*.log
+build/log/
+
+# ---------- Secrets & local config ----------
+secrets.h
+main/secrets.h
+components/**/secrets.h
+config/secrets.json
+config/wifi_config.txt
+*.key
+*.crt
+*.pem
+.env
+.env.*
+
+# ---------- IDE / editors ----------
+.vscode/
+!.vscode/extensions.json   # keep if you want to share recommended extensions
+.idea/
+*.code-workspace
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# ---------- OS cruft ----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# ---------- Tools / temps ----------
+tools/kconfig_new/
+tools/ldgen_mapping_entries.txt
+test_results/
+test_logs/
+
+# ---------- Optional / project-specific ----------
+ota_data_initial.bin
+partitions_custom.csv

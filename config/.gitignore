@@ -1,0 +1,71 @@
+# ESP-IDF Build Files
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+*.tmp
+
+# Secrets and Configuration
+secrets.h
+config/secrets.json
+config/wifi_config.txt
+*.key
+*.crt
+*.pem
+
+# IDE Files
+.vscode/settings.json
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+managed_components/
+
+# Flash Downloads
+*.bin
+*.elf
+*.map
+
+# Partition Tables (if customized with secrets)
+partitions_custom.csv
+
+# OTA Files
+ota_data_initial.bin
+
+# Development Tools
+tools/kconfig_new/
+tools/ldgen_mapping_entries.txt
+
+# Test Files
+test_results/
+test_logs/
+
+#Others
+SECURITY_SETUP.md
