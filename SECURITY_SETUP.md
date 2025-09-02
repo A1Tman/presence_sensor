@@ -4,15 +4,16 @@
 
 ### Create Required Files:
 ```bash
-# In your project root directory (presence-sensor/)
+# In your project root directory
 touch .gitignore
-touch secrets.h.template  
-# DO NOT create secrets.h yet - we'll copy from template
+mkdir -p config
+touch config/secrets.h.template
+# DO NOT create config/secrets.h yet - we'll copy from template
 ```
 
 ### Copy the Files I Provided:
 1. **Copy `.gitignore`** from the artifact into your project root
-2. **Copy `secrets.h.template`** from the artifact into your project root  
+2. **Copy `secrets.h.template`** into `config/`  
 3. **Copy the secure `main.c`** into your `main/` folder (replace existing)
 
 ## 2. Configure Your Secrets
@@ -20,10 +21,10 @@ touch secrets.h.template
 ### Create Your Secrets File:
 ```bash
 # In project root directory
-cp secrets.h.template secrets.h
+cp config/secrets.h.template config/secrets.h
 ```
 
-### Edit `secrets.h` with YOUR actual values:
+### Edit `config/secrets.h` with YOUR actual values:
 ```c
 // Update these with YOUR network settings:
 #define WIFI_SSID      "YourActualWiFiName"
@@ -43,7 +44,7 @@ cp secrets.h.template secrets.h
 ### Check `.gitignore` is Working:
 ```bash
 git status
-# Should NOT show secrets.h in untracked files
+# Should NOT show config/secrets.h in untracked files
 # Should NOT show build/ folder
 ```
 
@@ -65,7 +66,7 @@ git status
 
 # Add safe files only
 git add .gitignore
-git add secrets.h.template  
+git add config/secrets.h.template  
 git add main/
 git add CMakeLists.txt
 git add README.md

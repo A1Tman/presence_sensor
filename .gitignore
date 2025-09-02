@@ -1,8 +1,14 @@
 # ---------- ESP-IDF build output ----------
 build/
+# IDF often creates variant build dirs like build-c3, build-c6, etc.
+build-*/
+build*/
+build-c3/
 managed_components/
 CMakeCache.txt
 CMakeFiles/
+rules.ninja
+build.ninja
 cmake_install.cmake
 
 # ---------- IDF configuration ----------
@@ -24,6 +30,7 @@ build/log/
 secrets.h
 main/secrets.h
 components/**/secrets.h
+config/secrets.h
 config/secrets.json
 config/wifi_config.txt
 *.key

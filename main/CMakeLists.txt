@@ -3,7 +3,9 @@ idf_component_register(
   INCLUDE_DIRS "."
   PRIV_REQUIRES
       ha_mqtt
+      ld2420_simple
       ld2420
+      ld2411
       esp_wifi
       esp_timer
       esp_netif

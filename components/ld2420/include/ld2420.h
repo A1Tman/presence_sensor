@@ -34,9 +34,24 @@ typedef struct {
 
     // Publishing policy
     int         min_pub_interval_ms;  // force publish at least every N ms (e.g. 10000)
+    int         stale_after_ms;       // consider distance stale after N ms (e.g. 2000)
 
     // App callback
     ld2420_presence_cb_t cb;
+
+    // Optional: boot/probe TX sequences to enable streaming on some LD2420 variants
+    // Provide either or both. Strings are sent as-is (ASCII) and/or parsed as
+    // space-separated hex bytes (e.g., "AA 55 01 00").
+    const char *boot_tx_ascii;     // NULL or empty to disable
+    const char *boot_tx_hex;       // NULL or empty to disable
+    int         boot_tx_repeat;    // how many times to send per probe (e.g., 1-3)
+    int         boot_tx_delay_ms;  // delay between repeats (e.g., 20-50ms)
+    
+    // UART probing strategy
+    // Set fixed-baud mode to stop repeated autobaud scanning/log churn on modules
+    // that don’t emit stream data and only need UART for configuration.
+    bool        uart_fixed_baud;   // true = stick to fixed_baud_rate (no periodic scanning)
+    int         fixed_baud_rate;   // if <=0, uses baud_primary
 } ld2420_cfg_t;
 
 esp_err_t ld2420_init(const ld2420_cfg_t *cfg);
@@ -48,6 +63,15 @@ bool ld2420_get_present(void);
 int  ld2420_get_last_distance_mm(void);
 bool ld2420_uart_active(void);       // true if we detected a live UART stream
 int  ld2420_active_baud(void);       // returns 0 if unknown
+
+// Runtime tuning
+void ld2420_set_debounce_ms(int v);
+void ld2420_set_hold_on_ms(int v);
+int  ld2420_get_debounce_ms(void);
+int  ld2420_get_hold_on_ms(void);
+
+// MQTT command handler (text commands routed from HA)
+void ld2420_mqtt_cmd(const char *payload, int len);
 
 #ifdef __cplusplus
 }

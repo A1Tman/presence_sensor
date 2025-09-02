@@ -15,10 +15,22 @@
 #include "lwip/sys.h"
 
 #include "ha_mqtt.h"
-#include "ld2420.h"   // Stage 3 sensor
 
-// Import secure configuration
+// Import secure configuration early for build-time toggles
 #include "secrets.h"
+
+#if USE_LD2411
+#include "ld2411.h"
+#elif USE_LD2420_SIMPLE
+#include "ld2420_simple.h"
+#else
+#include "ld2420.h"   // LD2420 default
+#endif
+
+// Optional: allow overriding OT2 polarity from config
+#ifndef LD2420_OT2_ACTIVE_HIGH
+#define LD2420_OT2_ACTIVE_HIGH 0
+#endif
 
 // ==================== COMPILE-TIME CHECKS ====================
 #ifndef SECRETS_H
@@ -103,13 +115,170 @@ static void validate_configuration(void)
 
 // ==================== MQTT STARTER (after Wi-Fi IP) ====================
 static void start_mqtt_after_wifi(void) {
+    char uri[96];
+    int port = MQTT_USE_TLS ? MQTT_TLS_PORT : MQTT_BROKER_PORT;
+    snprintf(uri, sizeof(uri), "%s%s:%d", MQTT_URI_PREFIX, MQTT_BROKER_HOST, port);
+
+    static char s_device_model[64];
+#if USE_LD2411
+    snprintf(s_device_model, sizeof(s_device_model), "HLK-LD2411 + %s", CONFIG_IDF_TARGET);
+#elif USE_LD2420_SIMPLE
+    snprintf(s_device_model, sizeof(s_device_model), "HLK-LD2420 (simple) + %s", CONFIG_IDF_TARGET);
+#else
+    snprintf(s_device_model, sizeof(s_device_model), "HLK-LD2420 + %s", CONFIG_IDF_TARGET);
+#endif
+
+    static const char *s_legacy_ids[] = { DEVICE_ID };
     ha_mqtt_cfg_t cfg = {
-        .broker_uri     = MQTT_URI_PREFIX MQTT_BROKER_HOST,               // e.g. "mqtt://192.168.1.23"
+        .broker_uri     = uri,                                            // e.g. "mqtt://192.168.1.23:1883"
         .username       = (strlen(MQTT_USERNAME) ? MQTT_USERNAME : NULL), // NULL if empty
         .password       = (strlen(MQTT_PASSWORD) ? MQTT_PASSWORD : NULL),
         .friendly_name  = DEVICE_NAME,
         .suggested_area = DEVICE_LOCATION,
-        .app_version    = DEVICE_VERSION
+        .app_version    = DEVICE_VERSION,
+        .discovery_prefix = HA_DISCOVERY_PREFIX,
+        .device_model   = s_device_model,
+        // Provide prior node IDs to clean up retained HA discovery topics
+        .legacy_node_ids = s_legacy_ids,
+        .legacy_node_ids_count = (int)(sizeof(s_legacy_ids)/sizeof(s_legacy_ids[0])),
+#if USE_LD2411
+        .distance_supported = false,
+#else
+        // LD2420 spec: serial protocol only; no distance on output pins.
+        // Disable HA distance entity by default to reflect that many boards
+        // don’t expose reliable distance, unless explicitly enabled later.
+        .distance_supported = false,
+#endif
+        .get_debounce_ms =
+#if USE_LD2411
+            ld2411_get_debounce_ms,
+#elif USE_LD2420_SIMPLE
+            NULL,
+#else
+            ld2420_get_debounce_ms,
+#endif
+        .get_hold_on_ms =
+#if USE_LD2411
+            ld2411_get_hold_on_ms,
+#elif USE_LD2420_SIMPLE
+            NULL,
+#else
+            ld2420_get_hold_on_ms,
+#endif
+        .set_debounce_ms =
+#if USE_LD2411
+            ld2411_set_debounce_ms,
+#elif USE_LD2420_SIMPLE
+            NULL,
+#else
+            ld2420_set_debounce_ms,
+#endif
+        .set_hold_on_ms =
+#if USE_LD2411
+            ld2411_set_hold_on_ms,
+#elif USE_LD2420_SIMPLE
+            NULL,
+#else
+            ld2420_set_hold_on_ms,
+#endif
+        .get_out_active_high =
+#if USE_LD2411
+            ld2411_get_out_active_high,
+#else
+            NULL,
+#endif
+        .set_out_active_high =
+#if USE_LD2411
+            ld2411_set_out_active_high,
+#else
+            NULL,
+#endif
+        .get_out_pullup_enabled =
+#if USE_LD2411
+            ld2411_get_out_pullup_enabled,
+#else
+            NULL,
+#endif
+        .set_out_pullup_enabled =
+#if USE_LD2411
+            ld2411_set_out_pullup_enabled,
+#else
+            NULL,
+#endif
+        .get_uart_presence_enabled =
+#if USE_LD2411
+            ld2411_get_uart_presence_enabled,
+#else
+            NULL,
+#endif
+        .set_uart_presence_enabled =
+#if USE_LD2411
+            ld2411_set_uart_presence_enabled,
+#else
+            NULL,
+#endif
+        .get_presence_source =
+#if USE_LD2411
+            ld2411_get_presence_source,
+#else
+            NULL,
+#endif
+        .set_presence_source =
+#if USE_LD2411
+            ld2411_set_presence_source,
+#else
+            NULL,
+#endif
+        .get_distance_thresh_cm =
+#if USE_LD2411
+            ld2411_get_distance_thresh_cm,
+#else
+            NULL,
+#endif
+        .set_distance_thresh_cm =
+#if USE_LD2411
+            ld2411_set_distance_thresh_cm,
+#else
+            NULL,
+#endif
+        .get_distance_presence_enable =
+#if USE_LD2411
+            ld2411_get_distance_presence_enable,
+#else
+            NULL,
+#endif
+        .set_distance_presence_enable =
+#if USE_LD2411
+            ld2411_set_distance_presence_enable,
+#else
+            NULL,
+#endif
+        .action_force_publish =
+#if USE_LD2411
+            ld2411_action_force_publish,
+#else
+            NULL,
+#endif
+        .action_reautobaud =
+#if USE_LD2411
+            ld2411_action_reautobaud,
+#else
+            NULL,
+#endif
+        .action_reset_tuning =
+#if USE_LD2411
+            ld2411_action_reset_tuning,
+#else
+            NULL,
+#endif
+        .ld2420_handle_cmd =
+#if USE_LD2411
+            NULL,
+#elif USE_LD2420_SIMPLE
+            NULL,
+#else
+            ld2420_mqtt_cmd,
+#endif
     };
     ha_mqtt_init(&cfg);
     ha_mqtt_start();
@@ -199,6 +368,9 @@ static esp_err_t wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    // Improve link stability on weak RSSI: disable power save
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     ESP_LOGI(TAG, "WiFi configuration completed. Connecting to network...");
 
@@ -314,31 +486,127 @@ static void main_task(void *pvParameters)
     // Background status task
     xTaskCreate(status_led_task, "status_monitor", 2048, NULL, 1, NULL);
 
-    // --- LD2420 start (your wiring) ---
-    // LD2420 pins: 3V3, GND, OT1(TX)->GPIO20, RX<-GPIO21, OT2->GPIO4
-    // NOTE: Using UART0 for the sensor; keep console on USB-CDC to avoid conflicts.
-    ld2420_cfg_t lcfg = {
-        .uart_num       = UART_NUM_0,
-        .uart_tx        = GPIO_NUM_21,  // ESP TX -> LD2420 RX (Pin 4)
-        .uart_rx        = GPIO_NUM_20,  // ESP RX <- LD2420 TX/OT1 (Pin 3)
-        .baud_primary   = 115200,       // FW ≥1.5.3
-        .baud_fallback  = 256000,       // legacy FW
+    // --- Radar sensor start (LD2420 default, LD24211 if enabled) ---
+    // Allow overrides from config for debounce/hold
+    int cfg_debounce_ms = 80;
+    int cfg_hold_on_ms  = 1000;
+#ifdef LD2420_DEBOUNCE_MS
+    cfg_debounce_ms = LD2420_DEBOUNCE_MS;
+#endif
+#ifdef PRESENCE_TIMEOUT_SECONDS
+    cfg_hold_on_ms  = (PRESENCE_TIMEOUT_SECONDS) * 1000;
+#endif
+#ifdef LD2420_HOLD_ON_MS
+    cfg_hold_on_ms  = LD2420_HOLD_ON_MS;
+#endif
+    // NOTE: Keep console on USB-CDC or a different UART to avoid conflicts with sensor UART.
+#if USE_LD2411
+    ld2411_cfg_t lcfg = {
+        .uart_num       = (uart_port_t)LD2420_UART_NUM,
+        .uart_tx        = (gpio_num_t)LD2420_UART_TX_PIN,
+        .uart_rx        = (gpio_num_t)LD2420_UART_RX_PIN,
+        .baud_primary   = LD2420_BAUD_RATE,
+        .baud_fallback  = 256000,
 
-        .ot2_gpio       = GPIO_NUM_4,   // LD2420 OT2 (Pin 5) presence
-        .ot2_active_high= true,
+        .ot2_gpio       = USE_LD2420_OT2 ? (gpio_num_t)LD2420_OT2_PIN : GPIO_NUM_NC,
+        .ot2_active_high= (LD2420_OT2_ACTIVE_HIGH ? true : false),
 
         .sample_ms      = 50,
-        .debounce_ms    = 150,
-        .hold_on_ms     = 3000,
+        .debounce_ms    = cfg_debounce_ms,
+        .hold_on_ms     = cfg_hold_on_ms,
 
         .min_pub_interval_ms = 10000,
-        .cb = ha_mqtt_publish_presence, // publishes to HA via MQTT
+        .stale_after_ms = 2000,
+        .cb = ha_mqtt_publish_presence,
     };
+#ifdef LD2420_BOOT_TX_ASCII
+    lcfg.boot_tx_ascii = LD2420_BOOT_TX_ASCII;
+#endif
+#ifdef LD2420_BOOT_TX_HEX
+    lcfg.boot_tx_hex = LD2420_BOOT_TX_HEX;
+#endif
+#ifdef LD2420_BOOT_TX_REPEAT
+    lcfg.boot_tx_repeat = LD2420_BOOT_TX_REPEAT;
+#endif
+#ifdef LD2420_BOOT_TX_DELAY_MS
+    lcfg.boot_tx_delay_ms = LD2420_BOOT_TX_DELAY_MS;
+#endif
+    ESP_ERROR_CHECK(ld2411_init(&lcfg));
+    ESP_ERROR_CHECK(ld2411_start());
+#else
+#if USE_LD2420_SIMPLE
+    ld2420_simple_cfg_t lcfg = {
+        .uart_num       = (uart_port_t)LD2420_UART_NUM,
+        .uart_tx        = (gpio_num_t)LD2420_UART_TX_PIN,
+        .uart_rx        = (gpio_num_t)LD2420_UART_RX_PIN,
+        .baud           = LD2420_BAUD_RATE,
+        .sample_ms      = 50,
+        .hold_ms        = cfg_hold_on_ms,
+        .ot2_gpio       = USE_LD2420_OT2 ? (gpio_num_t)LD2420_OT2_PIN : GPIO_NUM_NC,
+        .ot2_active_high= (LD2420_OT2_ACTIVE_HIGH ? true : false),
+        .debounce_ms    = cfg_debounce_ms,
+        .cb             = ha_mqtt_publish_presence,
+    };
+#ifdef LD2420_BOOT_TX_ASCII
+    lcfg.boot_tx_ascii = LD2420_BOOT_TX_ASCII;
+#endif
+#ifdef LD2420_BOOT_TX_HEX
+    lcfg.boot_tx_hex = LD2420_BOOT_TX_HEX;
+#endif
+#ifdef LD2420_BOOT_TX_REPEAT
+    lcfg.boot_tx_repeat = LD2420_BOOT_TX_REPEAT;
+#endif
+#ifdef LD2420_BOOT_TX_DELAY_MS
+    lcfg.boot_tx_delay_ms = LD2420_BOOT_TX_DELAY_MS;
+#endif
+    ESP_ERROR_CHECK(ld2420_simple_init(&lcfg));
+    ESP_ERROR_CHECK(ld2420_simple_start());
+#else
+    ld2420_cfg_t lcfg = {
+        .uart_num       = (uart_port_t)LD2420_UART_NUM,  // sensor on UART1 by default
+        .uart_tx        = (gpio_num_t)LD2420_UART_TX_PIN,  // ESP TX -> sensor RX
+        .uart_rx        = (gpio_num_t)LD2420_UART_RX_PIN,  // ESP RX <- sensor TX/OT1
+        .baud_primary   = LD2420_BAUD_RATE,
+        .baud_fallback  = 256000,
+
+        .ot2_gpio       = USE_LD2420_OT2 ? (gpio_num_t)LD2420_OT2_PIN : GPIO_NUM_NC,
+        .ot2_active_high= (LD2420_OT2_ACTIVE_HIGH ? true : false),
+
+        .sample_ms      = 50,
+        .debounce_ms    = cfg_debounce_ms,
+        .hold_on_ms     = cfg_hold_on_ms,
+
+        .min_pub_interval_ms = 10000,
+        .cb = ha_mqtt_publish_presence,
+        // Prefer a fixed baud to avoid constant autobaud scans on non-streaming firmware
+        .uart_fixed_baud = true,
+        .fixed_baud_rate = LD2420_BAUD_RATE,
+    };
+#ifdef LD2420_BOOT_TX_ASCII
+    lcfg.boot_tx_ascii = LD2420_BOOT_TX_ASCII;
+#endif
+#ifdef LD2420_BOOT_TX_HEX
+    lcfg.boot_tx_hex = LD2420_BOOT_TX_HEX;
+#endif
+#ifdef LD2420_BOOT_TX_REPEAT
+    lcfg.boot_tx_repeat = LD2420_BOOT_TX_REPEAT;
+#endif
+#ifdef LD2420_BOOT_TX_DELAY_MS
+    lcfg.boot_tx_delay_ms = LD2420_BOOT_TX_DELAY_MS;
+#endif
     ESP_ERROR_CHECK(ld2420_init(&lcfg));
     ESP_ERROR_CHECK(ld2420_start());
+#endif
+#endif
 
     ESP_LOGI(TAG, "✓ Core system initialization completed");
+#if USE_LD2411
+    ESP_LOGI(TAG, "MQTT & HA integration active; LD2411 running");
+#elif USE_LD2420_SIMPLE
+    ESP_LOGI(TAG, "MQTT & HA integration active; LD2420 (simple) running");
+#else
     ESP_LOGI(TAG, "MQTT & HA integration active; LD2420 running");
+#endif
 
     // Main loop (lightweight; most work in tasks)
     while (1) {
@@ -352,6 +620,10 @@ void app_main(void)
     // Logging levels
     esp_log_level_set("*", LOG_LEVEL_DEFAULT);
     esp_log_level_set("wifi", LOG_LEVEL_WIFI);
+    esp_log_level_set("ld2420", LOG_LEVEL_LD2420);
+    esp_log_level_set("ld2411", LOG_LEVEL_LD2420);
+    esp_log_level_set("ld2420_simple", LOG_LEVEL_LD2420);
+    esp_log_level_set("ha_mqtt", LOG_LEVEL_MQTT);
 
     ESP_LOGI(TAG, "🚀 Starting %s v%s", DEVICE_NAME, DEVICE_VERSION);
     ESP_LOGI(TAG, "Device ID: %s", DEVICE_ID);
