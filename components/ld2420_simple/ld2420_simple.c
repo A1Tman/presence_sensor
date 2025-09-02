@@ -5,7 +5,6 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_idf_version.h"
 
@@ -15,12 +14,7 @@ static ld2420_simple_cfg_t s_cfg;
 static TaskHandle_t s_task = NULL;
 static volatile bool    s_present = false;
 static volatile int     s_last_mm = -1;
-static volatile int64_t s_last_detect_us = 0;
-static bool s_ot2_last_active = false;
-static bool s_ot2_stable = false;
-static int64_t s_ot2_edge_us = 0;
 
-static inline int64_t now_us(void) { return esp_timer_get_time(); }
 static inline bool pin_is_valid(gpio_num_t pin) { return (pin >= 0) && (pin < GPIO_NUM_MAX); }
 
 static void send_boot_seq(void)
@@ -52,44 +46,40 @@ static void send_boot_seq(void)
     uart_wait_tx_done(s_cfg.uart_num, pdMS_TO_TICKS(50));
 }
 
-static void flush_line(const char *line, int len, int64_t tnow)
+static void flush_line(const char *line, int len)
 {
     if (!line || len <= 0) return;
-    // trim CR/LF and spaces
     while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n' || isspace((int)line[len-1]))) len--;
     if (len <= 0) return;
-    // Presence tokens
-    if ((len >= 2 && !strncmp(line, "ON", 2)) || (len >= 3 && !strncmp(line, "On", 2))) {
-        s_present = true; s_last_detect_us = tnow; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); return;
-    }
-    if (len >= 3 && !strncmp(line, "OFF", 3)) {
-        s_present = false; if (s_cfg.cb) s_cfg.cb(false, -1); return;
-    }
-    // Range prefix
     if (len >= 6 && !strncmp(line, "Range ", 6)) {
-        int val = 0; int i = 6; int digits=0;
-        while (i < len && isdigit((int)line[i]) && digits < 6) { val = val*10 + (line[i]-'0'); i++; digits++; }
-        if (digits > 0 && val >= 0 && val <= 6000) {
-            s_last_mm = val * 10; s_last_detect_us = tnow; if (!s_present && s_cfg.cb) s_cfg.cb(true, s_last_mm); s_present = true; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); return;
+        char *end = NULL;
+        long cm = strtol(line + 6, &end, 10);
+        if (end != line + 6 && cm >= 0 && cm <= 600) {
+            int mm = (int)cm * 10;
+            bool present = (cm > 0);
+            bool changed = (present != s_present) || (present && mm != s_last_mm);
+            s_present = present;
+            s_last_mm = mm;
+            if (changed && s_cfg.cb) {
+                s_cfg.cb(present, present ? mm : -1);
+            }
         }
     }
-    // Generic decimal-in-line as cm
-    int val = 0, digits = 0; for (int i=0;i<len;i++){ if (isdigit((int)line[i])) { val = val*10 + (line[i]-'0'); digits++; if (digits>5) break; } else if (digits>0) break; }
-    if (digits>0 && val >= 0 && val <= 6000) { s_last_mm = val*10; s_last_detect_us = tnow; if (!s_present && s_cfg.cb) s_cfg.cb(true, s_last_mm); s_present = true; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); }
 }
 
-static void parse_chunk(const uint8_t *buf, int len, int64_t tnow)
+static void parse_chunk(const uint8_t *buf, int len)
 {
-    static char line[128]; static int L = 0;
+    static char line[128];
+    static int L = 0;
     for (int i = 0; i < len; ++i) {
         char c = (char)buf[i];
         if (c == '\n' || c == '\r') {
-            if (L > 0) { flush_line(line, L, tnow); L = 0; }
-        } else {
-            if (L < (int)sizeof(line)-1) line[L++] = c;
-            // Opportunistic scan inside partial line for tokens
-            if (L >= 2 && line[L-2]=='O' && line[L-1]=='N') { s_present = true; s_last_detect_us = tnow; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); }
-            if (L >= 3 && line[L-3]=='O' && line[L-2]=='F' && line[L-1]=='F') { s_present = false; if (s_cfg.cb) s_cfg.cb(false, -1); }
+            if (L > 0) {
+                flush_line(line, L);
+                L = 0;
+            }
+        } else if (L < (int)sizeof(line) - 1) {
+            line[L++] = c;
         }
     }
 }
@@ -124,28 +114,6 @@ static void task_fn(void *arg)
     uart_set_rx_full_threshold(s_cfg.uart_num, 1);
     uart_set_rx_timeout(s_cfg.uart_num, 2);
 
-    // Optional OT2 setup
-    if (s_cfg.ot2_gpio >= 0 && s_cfg.ot2_gpio < GPIO_NUM_MAX) {
-        gpio_config_t io = {
-            .pin_bit_mask = (1ULL << s_cfg.ot2_gpio),
-            .mode         = GPIO_MODE_INPUT,
-            .pull_up_en   = s_cfg.ot2_active_high ? GPIO_PULLUP_DISABLE : GPIO_PULLUP_ENABLE,
-            .pull_down_en = GPIO_PULLDOWN_DISABLE,
-            .intr_type    = GPIO_INTR_DISABLE,
-        };
-        gpio_config(&io);
-        int idle = gpio_get_level(s_cfg.ot2_gpio);
-        bool active = s_cfg.ot2_active_high ? (idle == 1) : (idle == 0);
-        s_ot2_last_active = active;
-        s_ot2_edge_us = now_us() - (int64_t)(s_cfg.debounce_ms > 0 ? s_cfg.debounce_ms : 100) * 1000;
-        s_ot2_stable = active;
-        if (active) s_last_detect_us = now_us();
-        ESP_LOGI(TAG, "OT2 enabled: pin=%d polarity=%s idle=%d", (int)s_cfg.ot2_gpio,
-                 s_cfg.ot2_active_high?"AH":"AL", idle);
-    } else {
-        ESP_LOGI(TAG, "OT2 disabled in simple driver");
-    }
-
     // Optional boot sequence
     if ((s_cfg.boot_tx_ascii && s_cfg.boot_tx_ascii[0]) || (s_cfg.boot_tx_hex && s_cfg.boot_tx_hex[0])) {
         send_boot_seq();
@@ -166,46 +134,14 @@ static void task_fn(void *arg)
 
     while (1) {
         vTaskDelay(tick);
-        int64_t tnow = now_us();
 
         int n = uart_read_bytes(s_cfg.uart_num, buf, sizeof(buf), 0);
         if (n > 0) {
             int m = n < 16 ? n : 16;
-            char hex[3*16+1]; int k=0;
-            for (int i=0;i<m;i++) k += snprintf(hex+k, sizeof(hex)-k, "%02X ", buf[i]);
-            ESP_LOGD(TAG, "UART rx %dB: %s%s", n, hex, (n>m?"...":""));
-            parse_chunk(buf, n, tnow);
-        }
-
-        // OT2 polling + debounce
-        if (s_cfg.ot2_gpio >= 0 && s_cfg.ot2_gpio < GPIO_NUM_MAX) {
-            int lvl = gpio_get_level(s_cfg.ot2_gpio);
-            bool active_now = s_cfg.ot2_active_high ? (lvl == 1) : (lvl == 0);
-            if (active_now != s_ot2_last_active) {
-                s_ot2_last_active = active_now;
-                s_ot2_edge_us = tnow;
-            }
-            int db = (s_cfg.debounce_ms > 0 ? s_cfg.debounce_ms : 100);
-            if ((tnow - s_ot2_edge_us) >= (int64_t)db * 1000) {
-                s_ot2_stable = s_ot2_last_active;
-            }
-            if (s_ot2_stable) {
-                s_last_detect_us = tnow;
-            }
-        }
-
-        // Simple hold logic
-        int hold_ms = (s_cfg.hold_ms > 0 ? s_cfg.hold_ms : 1000);
-        bool new_present = s_present;
-        // Any source (UART/OT2) updates s_last_detect_us when active
-        if ((tnow - s_last_detect_us) <= (int64_t)hold_ms * 1000) {
-            new_present = true;
-        } else {
-            new_present = false;
-        }
-        if (new_present != s_present) {
-            s_present = new_present;
-            if (s_cfg.cb) s_cfg.cb(s_present, s_present ? s_last_mm : -1);
+            char hex[3*16+1]; int k = 0;
+            for (int i = 0; i < m; i++) k += snprintf(hex + k, sizeof(hex) - k, "%02X ", buf[i]);
+            ESP_LOGD(TAG, "UART rx %dB: %s%s", n, hex, (n > m ? "..." : ""));
+            parse_chunk(buf, n);
         }
     }
 }
@@ -216,7 +152,6 @@ esp_err_t ld2420_simple_init(const ld2420_simple_cfg_t *cfg)
     s_cfg = *cfg;
     s_present = false;
     s_last_mm = -1;
-    s_last_detect_us = 0;
     return ESP_OK;
 }
 
