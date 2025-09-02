@@ -59,11 +59,8 @@ static void flush_line(const char *line, int len, int64_t tnow)
     while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n' || isspace((int)line[len-1]))) len--;
     if (len <= 0) return;
     // Presence tokens
-    if ((len >= 2 && !strncmp(line, "ON", 2)) || (len >= 2 && !strncmp(line, "On", 2))) {
-        s_present = true;
-        s_last_detect_us = tnow;
-        if (s_cfg.cb) s_cfg.cb(true, s_last_mm);
-        return;
+    if ((len >= 2 && !strncmp(line, "ON", 2)) || (len >= 3 && !strncmp(line, "On", 2))) {
+        s_present = true; s_last_detect_us = tnow; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); return;
     }
     if (len >= 3 && !strncmp(line, "OFF", 3)) {
         s_present = false; if (s_cfg.cb) s_cfg.cb(false, -1); return;
@@ -73,30 +70,12 @@ static void flush_line(const char *line, int len, int64_t tnow)
         int val = 0; int i = 6; int digits=0;
         while (i < len && isdigit((int)line[i]) && digits < 6) { val = val*10 + (line[i]-'0'); i++; digits++; }
         if (digits > 0 && val >= 0 && val <= 6000) {
-            s_last_mm = val * 10;
-            s_last_detect_us = tnow;
-            s_present = true;
-            if (s_cfg.cb) s_cfg.cb(true, s_last_mm);
-            return;
+            s_last_mm = val * 10; s_last_detect_us = tnow; if (!s_present && s_cfg.cb) s_cfg.cb(true, s_last_mm); s_present = true; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); return;
         }
     }
     // Generic decimal-in-line as cm
-    int val = 0, digits = 0;
-    for (int i=0; i<len; i++) {
-        if (isdigit((int)line[i])) {
-            val = val*10 + (line[i]-'0');
-            digits++;
-            if (digits > 5) break;
-        } else if (digits > 0) {
-            break;
-        }
-    }
-    if (digits > 0 && val >= 0 && val <= 6000) {
-        s_last_mm = val*10;
-        s_last_detect_us = tnow;
-        s_present = true;
-        if (s_cfg.cb) s_cfg.cb(true, s_last_mm);
-    }
+    int val = 0, digits = 0; for (int i=0;i<len;i++){ if (isdigit((int)line[i])) { val = val*10 + (line[i]-'0'); digits++; if (digits>5) break; } else if (digits>0) break; }
+    if (digits>0 && val >= 0 && val <= 6000) { s_last_mm = val*10; s_last_detect_us = tnow; if (!s_present && s_cfg.cb) s_cfg.cb(true, s_last_mm); s_present = true; if (s_cfg.cb) s_cfg.cb(true, s_last_mm); }
 }
 
 static void parse_chunk(const uint8_t *buf, int len, int64_t tnow)
